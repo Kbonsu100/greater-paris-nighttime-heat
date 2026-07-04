@@ -1,0 +1,117 @@
+// ===============================
+// 1. DEFINE STUDY AREA
+// ===============================
+var roi = ee.FeatureCollection("projects/idf-uhi/assets/idf_200_grid");
+Map.centerObject(roi, 10);
+Map.addLayer(roi, {}, "Grid");
+
+// Use lightweight export region
+var exportRegion = roi.geometry().bounds();
+
+// ===============================
+// 2. YEARS
+// ===============================
+
+// FULL WINDOW (ends Aug 2025)
+var startYear_full = 2018;
+var endYear_full   = 2024;
+
+// SUMMER ONLY (ends Sept 2025)
+var startYear_summer = 2018;
+var endYear_summer   = 2025;
+
+// ===============================
+// 3. FULL WINDOW FUNCTION
+// ===============================
+var processFull = function(year){
+
+  var startDate = ee.Date.fromYMD(year, 6, 1);
+  var endDate   = ee.Date.fromYMD(year + 1, 8, 30);
+
+  var s2 = ee.ImageCollection("COPERNICUS/S2_SR_HARMONIZED")
+    .filterBounds(roi)     // Use FeatureCollection directly
+    .filterDate(startDate, endDate)
+    .filter(ee.Filter.lt('CLOUDY_PIXEL_PERCENTAGE', 10))
+    .median()
+    .clip(exportRegion);   // Clip to bounding box (lighter)
+
+  var ndvi = s2.normalizedDifference(['B8', 'B4']).rename('NDVI');
+  var ndbi = s2.normalizedDifference(['B11', 'B8']).rename('NDBI');
+
+  var dem = ee.ImageCollection('COPERNICUS/DEM/GLO30')
+              .select('DEM')
+              .mosaic()
+              .clip(exportRegion);
+
+  var terrain = ee.Terrain.products(dem);
+  var slope = terrain.select('slope').rename('Slope');
+  var aspect = terrain.select('aspect').rename('Aspect');
+
+  var output = ndvi.addBands([ndbi, dem, slope, aspect])
+                 .toFloat();
+
+
+  Export.image.toDrive({
+    image: output,
+    description: 'UrbanPredictors_Full_' + year,
+    folder: 'GEE_UrbanHeat',
+    fileNamePrefix: 'UrbanPredictors_Full_' + year,
+    region: exportRegion,
+    scale: 70,
+    maxPixels: 1e13
+  });
+};
+
+// ===============================
+// 4. SUMMER ONLY FUNCTION
+// ===============================
+var processSummer = function(year){
+
+  var startDate = ee.Date.fromYMD(year, 6, 1);
+  var endDate   = ee.Date.fromYMD(year, 8, 30);
+
+  var s2 = ee.ImageCollection("COPERNICUS/S2_SR_HARMONIZED")
+    .filterBounds(roi)
+    .filterDate(startDate, endDate)
+    .filter(ee.Filter.lt('CLOUDY_PIXEL_PERCENTAGE', 10))
+    .median()
+    .clip(exportRegion);
+
+  var ndvi = s2.normalizedDifference(['B8', 'B4']).rename('NDVI');
+  var ndbi = s2.normalizedDifference(['B11', 'B8']).rename('NDBI');
+
+  var dem = ee.ImageCollection('COPERNICUS/DEM/GLO30')
+              .select('DEM')
+              .mosaic()
+              .clip(exportRegion);
+
+  var terrain = ee.Terrain.products(dem);
+  var slope = terrain.select('slope').rename('Slope');
+  var aspect = terrain.select('aspect').rename('Aspect');
+
+  var output = ndvi.addBands([ndbi, dem, slope, aspect])
+                 .toFloat();
+
+
+  Export.image.toDrive({
+    image: output,
+    description: 'UrbanPredictors_Summer_' + year,
+    folder: 'GEE_UrbanHeat',
+    fileNamePrefix: 'UrbanPredictors_Summer_' + year,
+    region: exportRegion,
+    scale: 70,
+    maxPixels: 1e13
+  });
+};
+
+// ===============================
+// 5. RUN LOOPS
+// ===============================
+
+for (var y = startYear_full; y <= endYear_full; y++){
+  processFull(y);
+}
+
+for (var y = startYear_summer; y <= endYear_summer; y++){
+  processSummer(y);
+}
